@@ -332,7 +332,12 @@ endif()
 
 # split and gc sections
 add_compile_options(-ffunction-sections -fdata-sections)
-add_link_options(-Wl,--gc-sections)
+if(NOT APPLE)
+  add_link_options(-Wl,--gc-sections)
+else()
+  # ld64 spells --gc-sections as -dead_strip; the GNU form is a hard error there.
+  add_link_options(-Wl,-dead_strip)
+endif()
 
 # support _DEBUG macro (some code uses to recognize debug builds)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
