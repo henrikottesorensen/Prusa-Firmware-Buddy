@@ -1,8 +1,9 @@
 # Common dependencies for all tests
 link_libraries(SG14 freertos_tests buddy_utils logging-mock)
 
-add_executable(
-  connect_tests
+# Everything connect_tests compiles except its own Catch2 test files - shared with the rig target
+# (connect_rig) below so the two cannot drift on the firmware source list.
+set(CONNECT_SHARED_SOURCES
   ${CMAKE_CURRENT_BINARY_DIR}/http_resp_automaton.cpp
   ${CMAKE_SOURCE_DIR}/src/common/automata/core.cpp
   ${CMAKE_SOURCE_DIR}/src/common/directory.cpp
@@ -53,12 +54,7 @@ add_executable(
   ${CMAKE_SOURCE_DIR}/src/transfers/transfer_recovery.cpp
   ${CMAKE_SOURCE_DIR}/src/common/str_utils.cpp
   ${CMAKE_SOURCE_DIR}/lib/heatshrink/heatshrink_decoder.c
-  command.cpp
   missing_functions.cpp
-  missing_functions_time.cpp
-  render.cpp
-  hostname.cpp
-  printer.cpp
   partial_file_mock.cpp
   gui_media_events_mock.cpp
   xbuddy_extension_mock.cpp
@@ -94,6 +90,17 @@ add_executable(
   ${CMAKE_SOURCE_DIR}/lib/Middlewares/Third_Party/LwIP/src/core/netif.c
   ${CMAKE_SOURCE_DIR}/lib/Middlewares/Third_Party/LwIP/src/netif/ethernet.c
   ${CMAKE_SOURCE_DIR}/src/feature/cork/tracker.cpp
+  )
+
+add_executable(
+  connect_tests
+  ${CONNECT_SHARED_SOURCES}
+  # This target's own Catch2 test files, plus the frozen-clock stub they rely on.
+  missing_functions_time.cpp
+  command.cpp
+  render.cpp
+  hostname.cpp
+  printer.cpp
   )
 target_include_directories(
   connect_tests
@@ -151,6 +158,33 @@ add_custom_target(
                                                 ${CMAKE_CURRENT_BINARY_DIR}/http_resp_automaton.h
   )
 add_dependencies(connect_tests generate-httpc-automata-tests-connect)
+
+# --- connect rig -------------------------------------------------------------------------------
+# The real Connect client as a runnable binary, talking to a Connect server over real TCP. Adds
+# the three firmware files connect_tests does not compile - the top-level loop, the websocket
+# framing and the buffered connection - plus the rig's own entry point, Printer implementation and
+# a REAL clock (missing_functions_time.cpp freezes time at 0, which would stop the planner ever
+# scheduling telemetry and would spin the idle loop).
+add_executable(
+  connect_rig
+  ${CONNECT_SHARED_SOURCES}
+  ${CMAKE_SOURCE_DIR}/src/connect/connect.cpp
+  ${CMAKE_SOURCE_DIR}/src/connect/connection_cache.cpp
+  ${CMAKE_SOURCE_DIR}/src/connect/registrator.cpp
+  ${CMAKE_SOURCE_DIR}/src/connect/status.cpp
+  ${CMAKE_SOURCE_DIR}/src/connect/json_out.cpp
+  ${CMAKE_SOURCE_DIR}/src/common/http/connect_error.cpp
+  ${CMAKE_SOURCE_DIR}/src/common/http/websocket.cpp
+  ${CMAKE_SOURCE_DIR}/src/common/http/buffered_conn.cpp
+  ${CMAKE_SOURCE_DIR}/src/common/utils/string_builder.cpp
+  rig/rig_main.cpp
+  rig/rig_time.cpp
+  # TLS refused rather than implemented - the rig talks plain HTTP; see the file's own comment.
+  rig/rig_tls.cpp
+  )
+target_include_directories(connect_rig PRIVATE $<TARGET_PROPERTY:connect_tests,INCLUDE_DIRECTORIES>)
+target_link_libraries(connect_rig $<TARGET_PROPERTY:connect_tests,LINK_LIBRARIES>)
+add_dependencies(connect_rig generate-httpc-automata-tests-connect)
 
 # Planner tests are separate. They mock time and don't want to poison that for others.
 add_executable(
