@@ -186,6 +186,21 @@ target_include_directories(connect_rig PRIVATE $<TARGET_PROPERTY:connect_tests,I
 target_link_libraries(connect_rig $<TARGET_PROPERTY:connect_tests,LINK_LIBRARIES>)
 add_dependencies(connect_rig generate-httpc-automata-tests-connect)
 
+# --- render dumper -----------------------------------------------------------------------------
+# Runs the real renderer over render.cpp's scenarios and prints the JSON it produces, for testing a
+# server implementation against actual renderer output. Needs no socket, no Connect and no clock of
+# its own - just the shared sources plus the SAME frozen time stub connect_tests links, which is
+# what keeps the emitted durations reproducible. Not registered with add_catch_test: it has its own
+# main() and is a tool, not a test.
+add_executable(connect_render_dump ${CONNECT_SHARED_SOURCES} missing_functions_time.cpp
+                                   rig/render_dump.cpp
+  )
+target_include_directories(
+  connect_render_dump PRIVATE $<TARGET_PROPERTY:connect_tests,INCLUDE_DIRECTORIES>
+  )
+target_link_libraries(connect_render_dump $<TARGET_PROPERTY:connect_tests,LINK_LIBRARIES>)
+add_dependencies(connect_render_dump generate-httpc-automata-tests-connect)
+
 # Planner tests are separate. They mock time and don't want to poison that for others.
 add_executable(
   connect_planner_tests
