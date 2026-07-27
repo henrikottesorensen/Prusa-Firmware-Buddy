@@ -165,9 +165,14 @@ add_dependencies(connect_tests generate-httpc-automata-tests-connect)
 # framing and the buffered connection - plus the rig's own entry point, Printer implementation and
 # a REAL clock (missing_functions_time.cpp freezes time at 0, which would stop the planner ever
 # scheduling telemetry and would spin the idle loop).
+# The rig brings its own PartialFile, so the stub one must not also be linked in.
+# REMOVE_ITEM on a copy, leaving CONNECT_SHARED_SOURCES intact for the other two targets.
+set(CONNECT_RIG_SOURCES ${CONNECT_SHARED_SOURCES})
+list(REMOVE_ITEM CONNECT_RIG_SOURCES partial_file_mock.cpp)
+
 add_executable(
   connect_rig
-  ${CONNECT_SHARED_SOURCES}
+  ${CONNECT_RIG_SOURCES}
   ${CMAKE_SOURCE_DIR}/src/connect/connect.cpp
   ${CMAKE_SOURCE_DIR}/src/connect/connection_cache.cpp
   ${CMAKE_SOURCE_DIR}/src/connect/registrator.cpp
@@ -179,9 +184,29 @@ add_executable(
   ${CMAKE_SOURCE_DIR}/src/common/utils/string_builder.cpp
   rig/rig_main.cpp
   rig/rig_time.cpp
+  # A real PartialFile, backed by an ordinary file. partial_file_mock.cpp (in
+  # CONNECT_SHARED_SOURCES) returns "not implemented" from create/open, which makes
+  # Transfer::begin refuse every download before any byte moves - so the rig cannot exercise
+  # transfers at all without this. Its symbols replace the mock's at link time.
+  rig/rig_partial_file.cpp
+  # PartialFile's sector pool holds a CountingSemaphore, which the freertos_tests object library
+  # does not build - nothing needed it until the rig constructed a PartialFile for real. Same
+  # firmware source, against the same FreeRTOS stubs the rest of the target already uses.
+  ${CMAKE_SOURCE_DIR}/src/freertos/counting_semaphore.cpp
   # TLS refused rather than implemented - the rig talks plain HTTP; see the file's own comment.
   rig/rig_tls.cpp
   )
+# tests/unit/lib/WUI/nhttp/missing_functions.c stubs mkdir() as `return 0` - harmless for tests that
+# never touch a filesystem, fatal for the rig: Transfer::begin believes it created the transfer
+# directory and then fails opening the backup file inside it ("Failed to create backup file").
+# Renaming the stub's symbol for this target only lets the real mkdir link from libc. The file is
+# left alone, so connect_tests and the nhttp suite keep the stub they expect.
+set_source_files_properties(
+  ${CMAKE_SOURCE_DIR}/tests/unit/lib/WUI/nhttp/missing_functions.c
+  TARGET_DIRECTORY connect_rig
+  PROPERTIES COMPILE_DEFINITIONS "mkdir=rig_unused_stub_mkdir"
+  )
+
 target_include_directories(connect_rig PRIVATE $<TARGET_PROPERTY:connect_tests,INCLUDE_DIRECTORIES>)
 target_link_libraries(connect_rig $<TARGET_PROPERTY:connect_tests,LINK_LIBRARIES>)
 add_dependencies(connect_rig generate-httpc-automata-tests-connect)
