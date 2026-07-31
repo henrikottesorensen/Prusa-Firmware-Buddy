@@ -226,6 +226,23 @@ target_include_directories(
 target_link_libraries(connect_render_dump $<TARGET_PROPERTY:connect_tests,LINK_LIBRARIES>)
 add_dependencies(connect_render_dump generate-httpc-automata-tests-connect)
 
+# --- keystream dumper --------------------------------------------------------------------------
+# Prints the AES-CTR keystream the real transfer decryptor produces at a set of starting offsets,
+# for testing a server that has to encrypt ranges the same way. See the file's own header for why
+# it emits the keystream rather than a decrypted file, and why the offsets are the interesting part.
+#
+# A much smaller dependency set than the two targets above: the decryptor needs AES and a bsod that
+# throws rather than halting, and nothing else - no Connect, no printer, no clock. Listed explicitly
+# rather than reusing CONNECT_SHARED_SOURCES, which would drag in the whole client for three files.
+add_executable(
+  connect_keystream_dump ${CMAKE_SOURCE_DIR}/src/transfers/decrypt.cpp
+                         ${CMAKE_SOURCE_DIR}/tests/unit/mock/bsod.cpp rig/keystream_dump.cpp
+  )
+target_include_directories(
+  connect_keystream_dump PRIVATE $<TARGET_PROPERTY:connect_tests,INCLUDE_DIRECTORIES>
+  )
+target_link_libraries(connect_keystream_dump $<TARGET_PROPERTY:connect_tests,LINK_LIBRARIES>)
+
 # Planner tests are separate. They mock time and don't want to poison that for others.
 add_executable(
   connect_planner_tests
