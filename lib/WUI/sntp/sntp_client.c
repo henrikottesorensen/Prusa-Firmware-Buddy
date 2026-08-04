@@ -1,6 +1,7 @@
 #include "sntp.h"
 #include "sntp_client.h"
 #include "netdev.h"
+#include "wui_api.h"
 #include <lwip/tcpip.h>
 
 #include <option/has_esp.h>
@@ -10,6 +11,13 @@ void sntp_client_init(void) {
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
 
     sntp_init();
+
+    // sntp_init() resets server 0 to the compiled-in default
+    // (SNTP_SERVER_ADDRESS), so the override must be applied after it.
+    const char *ntp_server = wui_get_ntp_server();
+    if (ntp_server != NULL) {
+        sntp_setservername(0, ntp_server);
+    }
 }
 
 void sntp_client_step(void) {
