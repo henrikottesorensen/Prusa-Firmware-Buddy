@@ -216,11 +216,19 @@ add_executable(
 # mbedtls_hardware_poll is renamed for the same reason and by the same trick: its stub returns 42
 # with the buffer untouched, so a DRBG seeded from it fails and TLS never reaches the socket.
 # rig/rig_entropy.cpp provides the real one.
+#
+# mbedtls_platform_zeroize is renamed because linking the real TLS stack pulls mbedtls' own
+# platform_util.c out of libmbedTLS.a, which defines it too. Unlike the two above this is a hard
+# link error rather than a silent wrong answer - and it does not reproduce on macOS, because ld64
+# will not extract an archive member to satisfy a symbol an object file already defines, where GNU
+# ld extracts platform_util.c.o and then reports the duplicate. So the rig links on a Mac and fails
+# in the container, which is where it has to run for /internal/connect/connect.der to exist at all.
 set_source_files_properties(
   ${CMAKE_SOURCE_DIR}/tests/unit/lib/WUI/nhttp/missing_functions.c
   TARGET_DIRECTORY connect_rig
-  PROPERTIES COMPILE_DEFINITIONS
-             "mkdir=rig_unused_stub_mkdir;mbedtls_hardware_poll=rig_unused_stub_mbedtls_hardware_poll"
+  PROPERTIES
+    COMPILE_DEFINITIONS
+    "mkdir=rig_unused_stub_mkdir;mbedtls_hardware_poll=rig_unused_stub_mbedtls_hardware_poll;mbedtls_platform_zeroize=rig_unused_stub_mbedtls_platform_zeroize"
   )
 
 target_include_directories(connect_rig PRIVATE $<TARGET_PROPERTY:connect_tests,INCLUDE_DIRECTORIES>)
