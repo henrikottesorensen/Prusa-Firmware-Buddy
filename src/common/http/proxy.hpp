@@ -1,6 +1,7 @@
 #pragma once
 
 #include "connect_error.h"
+#include <cstdint>
 #include <optional>
 
 namespace http {

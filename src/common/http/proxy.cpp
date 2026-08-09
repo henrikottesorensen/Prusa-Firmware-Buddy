@@ -1,6 +1,9 @@
 #include "proxy.hpp"
 #include "httpc.hpp"
 
+#include <cinttypes>
+#include <cstdio>
+
 namespace http {
 
 namespace {

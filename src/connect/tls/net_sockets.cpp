@@ -22,9 +22,6 @@
 #include <stdint.h>
 #include <sys/socket.h>
 
-#include <lwip/netdb.h>
-#include <lwip/sockets.h>
-
 #include "net_sockets.hpp"
 
 using http::Error;

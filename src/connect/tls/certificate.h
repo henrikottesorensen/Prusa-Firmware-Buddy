@@ -1,5 +1,8 @@
 #pragma once
 
+#include <array>
+#include <span>
+
 // openssl x509 -in x.pem -out x.der -outform der
 // xxd -i x.der
 constexpr const unsigned char ca_cert_der[] = {

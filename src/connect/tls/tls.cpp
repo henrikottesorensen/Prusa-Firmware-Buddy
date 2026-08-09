@@ -2,6 +2,7 @@
 #include "certificate.h"
 #include <string.h>
 #include <stdbool.h>
+#include <cassert>
 #include <memory>
 
 #include <logging/log.hpp>
