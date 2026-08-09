@@ -40,8 +40,14 @@ struct InitContexts {
         mbedtls_x509_crt_init(&x509_certificate);
         constexpr size_t entropy_size = sizeof(mbedtls_entropy_context);
         // We want to "hit" the 512B pool, as that one is also used by DHCP and DHCP is "rare", it's likely going to be free.
-        static_assert(entropy_size <= 512);
-        static_assert(entropy_size >= 128);
+        //
+        // The bounds scale with pointer width so they stay meaningful off-target. The struct is
+        // dominated by MBEDTLS_ENTROPY_MAX_SOURCES descriptors of two pointers and two size_t
+        // each, so it very nearly doubles in a 64-bit host build - where mem_malloc is a plain
+        // malloc and there are no size-classed pools to hit in the first place. 128 * sizeof(void *)
+        // is 512 on the printer, which is the number this comment is about.
+        static_assert(entropy_size <= 128 * sizeof(void *));
+        static_assert(entropy_size >= 32 * sizeof(void *));
         entropy_context.reset(reinterpret_cast<mbedtls_entropy_context *>(mem_malloc(entropy_size)));
         if (entropy_context) {
             mbedtls_entropy_init(entropy_context.get());
