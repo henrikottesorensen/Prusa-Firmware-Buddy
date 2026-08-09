@@ -193,23 +193,48 @@ add_executable(
   # does not build - nothing needed it until the rig constructed a PartialFile for real. Same
   # firmware source, against the same FreeRTOS stubs the rest of the target already uses.
   ${CMAKE_SOURCE_DIR}/src/freertos/counting_semaphore.cpp
-  # TLS refused rather than implemented - the rig talks plain HTTP; see the file's own comment.
-  rig/rig_tls.cpp
+  # The real TLS stack, replacing the rig_tls.cpp stub that used to refuse every connection. Both
+  # files are firmware sources built unmodified; net_sockets.cpp does not touch lwIP despite its
+  # includes, because it delegates every operation to http::socket_con, which already builds here.
+  ${CMAKE_SOURCE_DIR}/src/connect/tls/tls.cpp
+  ${CMAKE_SOURCE_DIR}/src/connect/tls/net_sockets.cpp
+  # Two small helpers tls.cpp calls that nothing else in this target needed. Real firmware sources
+  # rather than stubs: proxy.cpp is the HTTP CONNECT path a proxied config uses, and conserve_cpu is
+  # a singleton the TLS handshake consults to yield while the maths runs.
+  ${CMAKE_SOURCE_DIR}/src/common/http/proxy.cpp
+  ${CMAKE_SOURCE_DIR}/src/common/conserve_cpu.cpp
+  # A real entropy source. The stub below returns 42 and fills nothing, which makes seeding fail and
+  # tls.cpp give up before it opens a socket - see the file's own comment.
+  rig/rig_entropy.cpp
   )
 # tests/unit/lib/WUI/nhttp/missing_functions.c stubs mkdir() as `return 0` - harmless for tests that
 # never touch a filesystem, fatal for the rig: Transfer::begin believes it created the transfer
 # directory and then fails opening the backup file inside it ("Failed to create backup file").
 # Renaming the stub's symbol for this target only lets the real mkdir link from libc. The file is
 # left alone, so connect_tests and the nhttp suite keep the stub they expect.
+#
+# mbedtls_hardware_poll is renamed for the same reason and by the same trick: its stub returns 42
+# with the buffer untouched, so a DRBG seeded from it fails and TLS never reaches the socket.
+# rig/rig_entropy.cpp provides the real one.
 set_source_files_properties(
   ${CMAKE_SOURCE_DIR}/tests/unit/lib/WUI/nhttp/missing_functions.c
   TARGET_DIRECTORY connect_rig
-  PROPERTIES COMPILE_DEFINITIONS "mkdir=rig_unused_stub_mkdir"
+  PROPERTIES COMPILE_DEFINITIONS
+             "mkdir=rig_unused_stub_mkdir;mbedtls_hardware_poll=rig_unused_stub_mbedtls_hardware_poll"
   )
 
 target_include_directories(connect_rig PRIVATE $<TARGET_PROPERTY:connect_tests,INCLUDE_DIRECTORIES>)
 target_link_libraries(connect_rig $<TARGET_PROPERTY:connect_tests,LINK_LIBRARIES>)
 add_dependencies(connect_rig generate-httpc-automata-tests-connect)
+
+# Compile the vendored mbedtls against the firmware's own config rather than mbedtls' stock defaults,
+# the same way addMBEDTLS.cmake does for the firmware target - otherwise the rig would silently speak
+# 16384-byte records where the printer speaks 1024, and nothing measured here about record sizes
+# would describe the printer's TLS stack. rig_mbedtls_config.h is that config with the single value
+# that cannot survive 64-bit pointers adjusted; see its own comment for why.
+target_compile_definitions(
+  connect_rig PRIVATE MBEDTLS_CONFIG_FILE=\"${CMAKE_CURRENT_SOURCE_DIR}/rig/rig_mbedtls_config.h\"
+  )
 
 # --- render dumper -----------------------------------------------------------------------------
 # Runs the real renderer over render.cpp's scenarios and prints the JSON it produces, for testing a

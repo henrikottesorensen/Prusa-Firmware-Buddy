@@ -28,7 +28,7 @@ namespace connect_client {
 class RigPrinter final : public Printer {
 public:
     RigPrinter(const char *host, uint16_t port, const char *token, const char *fingerprint,
-               const char *serial, const char *firmware) {
+               const char *serial, const char *firmware, bool tls = false, bool custom_cert = false) {
         info.appendix = false;
         info.firmware_version = firmware;
         strlcpy(info.fingerprint, fingerprint, PrinterInfo::FINGERPRINT_BUFF_LEN);
@@ -37,7 +37,8 @@ public:
         strlcpy(config.host, host, Config::CONNECT_URL_BUF_LEN);
         strlcpy(config.token, token, Config::CONNECT_TOKEN_BUF_LEN);
         config.port = port;
-        config.tls = false;
+        config.tls = tls;
+        config.custom_cert = custom_cert;
         config.enabled = true;
         config.loaded = true;
 

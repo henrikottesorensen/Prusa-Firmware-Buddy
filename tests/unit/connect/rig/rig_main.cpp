@@ -95,6 +95,8 @@ int main(int argc, char *argv[]) {
     const char *host = "127.0.0.1";
     uint16_t port = 5052;
     bool printing = false;
+    bool tls = false;
+    bool custom_cert = false;
     std::optional<uint32_t> swap_in = std::nullopt;
 
     for (int i = 1; i < argc; i++) {
@@ -108,6 +110,12 @@ int main(int argc, char *argv[]) {
             port = static_cast<uint16_t>(atoi(argv[++i]));
         } else if (arg == "--printing") {
             printing = true;
+        } else if (arg == "--tls") {
+            tls = true;
+        } else if (arg == "--custom-cert") {
+            // Implies --tls: verify against the DER on disk rather than the compiled-in Prusa CA.
+            tls = true;
+            custom_cert = true;
         } else if (arg == "--swap-in" && i + 1 < argc) {
             swap_in = static_cast<uint32_t>(atoi(argv[++i]));
         } else {
@@ -140,7 +148,7 @@ int main(int argc, char *argv[]) {
 
     static connect_client::RigPrinter printer(host, port, token.c_str(), fingerprint.c_str(),
         serial.empty() ? "RIG-0000000000000000" : serial.c_str(),
-        firmware.empty() ? "6.6.0" : firmware.c_str());
+        firmware.empty() ? "6.6.0" : firmware.c_str(), tls, custom_cert);
 
     if (printing) {
         printer.start_fake_print(1, 3600, swap_in);
