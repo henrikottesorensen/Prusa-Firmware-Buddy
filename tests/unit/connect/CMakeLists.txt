@@ -227,14 +227,23 @@ target_include_directories(connect_rig PRIVATE $<TARGET_PROPERTY:connect_tests,I
 target_link_libraries(connect_rig $<TARGET_PROPERTY:connect_tests,LINK_LIBRARIES>)
 add_dependencies(connect_rig generate-httpc-automata-tests-connect)
 
-# Compile the vendored mbedtls against the firmware's own config rather than mbedtls' stock defaults,
-# the same way addMBEDTLS.cmake does for the firmware target - otherwise the rig would silently speak
-# 16384-byte records where the printer speaks 1024, and nothing measured here about record sizes
-# would describe the printer's TLS stack. rig_mbedtls_config.h is that config with the single value
-# that cannot survive 64-bit pointers adjusted; see its own comment for why.
+# tls.cpp must see the same mbedtls config as the mbedTLS library it links against, which
+# addMBEDTLS.cmake sets PUBLIC on that target. Without this line tls.cpp compiles against mbedtls'
+# stock defaults while the library uses the firmware's, and mbedtls_entropy_context comes out a
+# different size in each - so tls.cpp mem_mallocs one size and mbedtls_entropy_init writes the
+# other. That is a silent ~400 byte heap overflow on the first TLS attempt, and it presents as a
+# corrupted malloc freelist long after the fact.
+#
+# It must be the firmware's own config, byte for byte. A wrapper that adjusts even one value
+# reintroduces exactly that mismatch for every macro the wrapper changes.
 target_compile_definitions(
-  connect_rig PRIVATE MBEDTLS_CONFIG_FILE=\"${CMAKE_CURRENT_SOURCE_DIR}/rig/rig_mbedtls_config.h\"
+  connect_rig PRIVATE MBEDTLS_CONFIG_FILE=\"${CMAKE_SOURCE_DIR}/include/mbedtls/cipher_config_ece.h\"
   )
+
+# The tree builds -Os because the firmware cares about flash. This is a host binary that does not,
+# and -Os costs real debuggability: an abort inside it yields a single-frame backtrace. Appended
+# after the project's own flags, so these win.
+target_compile_options(connect_rig PRIVATE -O0 -fno-omit-frame-pointer)
 
 # --- render dumper -----------------------------------------------------------------------------
 # Runs the real renderer over render.cpp's scenarios and prints the JSON it produces, for testing a
