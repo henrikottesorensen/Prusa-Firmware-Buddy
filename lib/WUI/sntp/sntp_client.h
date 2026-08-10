@@ -5,20 +5,17 @@
 extern "C" {
 #endif
 
-void sntp_client_init(void);
-void sntp_client_step(void);
-
 /*!
- * \brief Forces the next sntp_client_step() to re-initialize the SNTP client
+ * \brief One pass of the SNTP client's reconciliation
  *
- * To be called when the network settings change. Without it a settings reload
- * is not picked up, because sntp_client_step() only re-initializes on a netif
- * down->up transition and the reconfiguration happens between two of its polls.
+ * Called periodically from the network loop. Compares what should be true --
+ * some interface up, and the NTP server the config store currently wants --
+ * with what the lwIP client is doing, and stops or restarts it to match.
  *
- * Touches no lwIP state, so it needs no tcpip core lock -- it only clears a
- * volatile word-sized flag that sntp_client_step() reads.
+ * Config changes are picked up by the comparison itself, so a settings reload
+ * needs no notification and no observable interface down/up transition.
  */
-void sntp_client_reset(void);
+void sntp_client_step(void);
 
 #ifdef __cplusplus
 }

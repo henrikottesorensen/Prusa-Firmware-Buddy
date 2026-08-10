@@ -391,12 +391,9 @@ private:
             netifapi_netif_set_default(&ifaces[active_local].dev);
         }
 
-        // The interfaces went down and up again above, but within this single
-        // pass of the loop -- so sntp_client_step(), which runs later in the
-        // same pass, never observes the down state and would keep the previous
-        // server. Reset it explicitly, the same way mdns_initialized is reset
-        // above so the responder re-announces.
-        sntp_client_reset();
+        // Unlike mdns_initialized above, SNTP needs no explicit kick here:
+        // sntp_client_step() reconciles the configured server on every pass of
+        // this loop, so it picks up the reload by itself.
 
         lock.unlock();
 

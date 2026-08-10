@@ -4,14 +4,25 @@
 #include "wui_api.h"
 #include "tcpip.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include <option/has_esp.h>
 
-// volatile: written by sntp_client_reset(), read by sntp_client_step().
-static volatile uint32_t sntp_running = 0; // describes if sntp is currently running or not
-void sntp_client_init(void) {
+// The server name registered with lwIP -- a private copy, not a pointer into
+// the config store. sntp_setservername() stores the pointer it is given, and
+// the config store rewrites its buffer in place on a settings reload, which
+// would both hand lwIP a name that changes under an in-flight query and make
+// the comparison in sntp_client_step() compare the buffer against itself,
+// never seeing a change. Empty means the compiled-in default.
+static char sntp_applied_server[NTP_SERVER_LEN + 1] = "";
+static bool sntp_running = false;
+
+// To be called with the tcpip core lock held.
+static void sntp_client_start(void) {
     // Stop first, and before sntp_setoperatingmode(), which asserts that the
     // client is not running. This is a no-op on the first call, when lwIP has
-    // not allocated the UDP control block yet, and on a re-init it is what
+    // not allocated the UDP control block yet, and on a restart it is what
     // makes the restart real: sntp_init() short-circuits when that block
     // already exists, so without the stop the server name would be re-applied
     // but no request would ever be scheduled.
@@ -23,16 +34,9 @@ void sntp_client_init(void) {
 
     // sntp_init() resets server 0 to the compiled-in default
     // (SNTP_SERVER_ADDRESS), so the override must be applied after it.
-    const char *ntp_server = wui_get_ntp_server();
-    if (ntp_server != NULL) {
-        sntp_setservername(0, ntp_server);
+    if (sntp_applied_server[0] != '\0') {
+        sntp_setservername(0, sntp_applied_server);
     }
-}
-
-void sntp_client_reset(void) {
-    // Only clears the latch; the lwIP calls stay in sntp_client_step(), which
-    // already holds the tcpip core lock for them.
-    sntp_running = 0;
 }
 
 void sntp_client_step(void) {
@@ -41,15 +45,29 @@ void sntp_client_step(void) {
     netif_up |= netdev_get_status(NETDEV_ESP_ID) == NETDEV_NETIF_UP;
 #endif
 
-    if (!sntp_running && netif_up) {
-        LOCK_TCPIP_CORE();
-        sntp_client_init();
-        UNLOCK_TCPIP_CORE();
-        sntp_running = 1;
-    } else if (sntp_running && !netif_up) {
-        LOCK_TCPIP_CORE();
-        sntp_stop();
-        UNLOCK_TCPIP_CORE();
-        sntp_running = 0;
+    if (!netif_up) {
+        if (sntp_running) {
+            LOCK_TCPIP_CORE();
+            sntp_stop();
+            UNLOCK_TCPIP_CORE();
+            sntp_running = false;
+        }
+        return;
     }
+
+    const char *configured = wui_get_ntp_server();
+    if (configured == NULL) {
+        configured = "";
+    }
+
+    if (sntp_running && strcmp(configured, sntp_applied_server) == 0) {
+        return;
+    }
+
+    snprintf(sntp_applied_server, sizeof(sntp_applied_server), "%s", configured);
+
+    LOCK_TCPIP_CORE();
+    sntp_client_start();
+    UNLOCK_TCPIP_CORE();
+    sntp_running = true;
 }

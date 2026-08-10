@@ -16,7 +16,7 @@ extern "C" {
  * care of that.
  */
 
-// Controls what the wui_get_ntp_server() stub hands to sntp_client_init().
+// Controls what the wui_get_ntp_server() stub hands to the SNTP client.
 static const char *ntp_server_config = nullptr;
 // Controls what netdev_get_status() reports per interface. The wifi one stays
 // down in the HAS_ESP() builds unless a test raises it, which is also what a
@@ -94,49 +94,54 @@ TEST_CASE("sntp: configured server overrides the compiled-in default") {
     ntp_server_config = nullptr;
 }
 
-TEST_CASE("sntp: config change is picked up on the next netif down/up cycle") {
+TEST_CASE("sntp: config changes are applied on the next pass, cycle or not") {
     NoLwipAsserts no_asserts;
-    ntp_server_config = nullptr;
-    bring_up();
-    CHECK(strcmp(server_name(), SNTP_SERVER_ADDRESS) == 0);
-
-    // A config change alone doesn't re-register the server; the client only
-    // re-initializes after it observes the interface go down and up again.
-    ntp_server_config = "10.0.0.5";
-    sntp_client_step();
-    CHECK(strcmp(server_name(), SNTP_SERVER_ADDRESS) == 0);
-
-    bring_down();
-    bring_up();
-    CHECK(strcmp(server_name(), "10.0.0.5") == 0);
-
-    bring_down();
-    ntp_server_config = nullptr;
-}
-
-TEST_CASE("sntp: reset picks up a config change without a down/up cycle") {
-    NoLwipAsserts no_asserts;
-    // reconfigure() brings the interfaces down and up within a single pass of
-    // the network loop, so sntp_client_step() never observes the down state and
-    // a settings reload would otherwise not be applied until the next reboot.
+    // reconfigure() bounces the interfaces within a single pass of the network
+    // loop, so the client cannot rely on observing a down/up transition to
+    // learn that a settings reload happened. It reconciles the configured
+    // server on every pass instead, so no transition is needed at all.
     ntp_server_config = nullptr;
     bring_up();
     CHECK(strcmp(server_name(), SNTP_SERVER_ADDRESS) == 0);
 
     ntp_server_config = "10.0.0.5";
-    sntp_client_reset();
     sntp_client_step(); // interface never went down
     CHECK(strcmp(server_name(), "10.0.0.5") == 0);
 
     // And the reverse: clearing it reverts to the default, which is what the
-    // ini documents. Without the reset the registered pointer would still be
-    // aiming at the config store buffer that has just been emptied.
+    // ini documents. The client registers its own copy of the name, so the
+    // config store buffer being emptied in place cannot affect it until the
+    // reconciliation deliberately picks the change up here.
     ntp_server_config = nullptr;
-    sntp_client_reset();
     sntp_client_step();
     CHECK(strcmp(server_name(), SNTP_SERVER_ADDRESS) == 0);
 
     bring_down();
+}
+
+TEST_CASE("sntp: the client does not run without an interface, config changes included") {
+    NoLwipAsserts no_asserts;
+    ntp_server_config = "10.0.0.5";
+    bring_up();
+    // sntp_enabled() reads lwIP's own control block, not the client's idea of
+    // itself, so these checks cannot be fooled by a stale latch.
+    REQUIRE(sntp_enabled() == 1);
+
+    bring_down();
+    CHECK(sntp_enabled() == 0);
+
+    // A config change while everything is down must not start the client...
+    ntp_server_config = "10.0.0.6";
+    sntp_client_step();
+    CHECK(sntp_enabled() == 0);
+
+    // ...but it is the one applied once an interface comes up.
+    bring_up();
+    CHECK(sntp_enabled() == 1);
+    CHECK(strcmp(server_name(), "10.0.0.6") == 0);
+
+    bring_down();
+    ntp_server_config = nullptr;
 }
 
 #if HAS_ESP()
@@ -145,8 +150,9 @@ TEST_CASE("sntp: wifi staying up hides an ethernet down/up entirely") {
     NoLwipAsserts no_asserts;
     // sntp_client_step() ORs the two interfaces, so on a printer with wifi
     // associated an ethernet bounce is never visible as "down" at all -- not
-    // even to a poll that happens to land in the middle of it. The reset is
-    // then the only thing that re-applies a changed server.
+    // even to a poll that happens to land in the middle of it. A changed
+    // server must therefore be picked up by the reconciliation itself, with
+    // the client running the whole time.
     esp_status = NETDEV_NETIF_UP;
     ntp_server_config = nullptr;
     bring_up();
@@ -155,10 +161,6 @@ TEST_CASE("sntp: wifi staying up hides an ethernet down/up entirely") {
     ntp_server_config = "10.0.0.5";
     bring_down(); // ethernet only; wifi still up, so the client stays running
     bring_up();
-    CHECK(strcmp(server_name(), SNTP_SERVER_ADDRESS) == 0);
-
-    sntp_client_reset();
-    sntp_client_step();
     CHECK(strcmp(server_name(), "10.0.0.5") == 0);
 
     esp_status = NETDEV_NETIF_DOWN;
