@@ -18,14 +18,25 @@ extern "C" {
 
 // Controls what the wui_get_ntp_server() stub hands to sntp_client_init().
 static const char *ntp_server_config = nullptr;
-// Controls what netdev_get_status() reports for the ETH interface.
+// Controls what netdev_get_status() reports per interface. The wifi one stays
+// down in the HAS_ESP() builds unless a test raises it, which is also what a
+// critical-infrastructure printer looks like: the firmware has the wifi code,
+// the hardware is gone, so the interface never comes up.
 static netdev_status_t eth_status = NETDEV_NETIF_DOWN;
+static netdev_status_t esp_status = NETDEV_NETIF_DOWN;
 
 extern "C" const char *wui_get_ntp_server(void) {
     return ntp_server_config;
 }
 
-extern "C" netdev_status_t netdev_get_status(uint32_t) {
+extern "C" netdev_status_t netdev_get_status(uint32_t netdev_id) {
+#if HAS_ESP()
+    if (netdev_id == NETDEV_ESP_ID) {
+        return esp_status;
+    }
+#else
+    (void)netdev_id;
+#endif
     return eth_status;
 }
 
@@ -112,6 +123,50 @@ TEST_CASE("sntp: reset picks up a config change without a down/up cycle") {
 
     bring_down();
 }
+
+#if HAS_ESP()
+
+TEST_CASE("sntp: wifi staying up hides an ethernet down/up entirely") {
+    // sntp_client_step() ORs the two interfaces, so on a printer with wifi
+    // associated an ethernet bounce is never visible as "down" at all -- not
+    // even to a poll that happens to land in the middle of it. The reset is
+    // then the only thing that re-applies a changed server.
+    esp_status = NETDEV_NETIF_UP;
+    ntp_server_config = nullptr;
+    bring_up();
+    CHECK(strcmp(server_name(), SNTP_SERVER_ADDRESS) == 0);
+
+    ntp_server_config = "10.0.0.5";
+    bring_down(); // ethernet only; wifi still up, so the client stays running
+    bring_up();
+    CHECK(strcmp(server_name(), SNTP_SERVER_ADDRESS) == 0);
+
+    sntp_client_reset();
+    sntp_client_step();
+    CHECK(strcmp(server_name(), "10.0.0.5") == 0);
+
+    esp_status = NETDEV_NETIF_DOWN;
+    bring_down();
+    ntp_server_config = nullptr;
+}
+
+TEST_CASE("sntp: wifi hardware removed behaves like ethernet only") {
+    // The critical-infrastructure editions run this build with the wifi
+    // circuitry physically removed, so NETDEV_ESP_ID never comes up.
+    esp_status = NETDEV_NETIF_DOWN;
+    ntp_server_config = "10.0.0.5";
+    bring_up();
+    CHECK(strcmp(server_name(), "10.0.0.5") == 0);
+
+    ntp_server_config = nullptr;
+    bring_down();
+    bring_up();
+    CHECK(strcmp(server_name(), SNTP_SERVER_ADDRESS) == 0);
+
+    bring_down();
+}
+
+#endif
 
 TEST_CASE("sntp: clearing the override reverts to the default on reconnect") {
     ntp_server_config = "10.0.0.5";
