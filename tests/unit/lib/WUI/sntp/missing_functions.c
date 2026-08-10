@@ -42,10 +42,19 @@ void *mem_trim(void *mem, size_t size) {
     return mem;
 }
 
+/*
+ * Counted rather than ignored. On the firmware a failed lwIP assert only
+ * log_criticals and execution continues (src/buddy/lwip.cpp), so nothing
+ * observable goes wrong when we violate one of lwIP's contracts -- which makes
+ * a silent stub here exactly the wrong shape. The tests assert this stays zero.
+ */
+unsigned lwip_assert_count = 0;
+
 void lwip_platform_assert(const char *message, const char *file, int line) {
     (void)message;
     (void)file;
     (void)line;
+    lwip_assert_count++;
 }
 
 void wui_lwip_assert_core_locked(void) {

@@ -9,13 +9,15 @@
 // volatile: written by sntp_client_reset(), read by sntp_client_step().
 static volatile uint32_t sntp_running = 0; // describes if sntp is currently running or not
 void sntp_client_init(void) {
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-
-    // sntp_init() short-circuits on an already allocated pcb, so on a re-init
-    // it would re-apply only the server name and never schedule a request.
-    // Stopping first makes a re-init a real restart, which is what a settings
-    // change needs. It is a no-op the first time, when there is no pcb yet.
+    // Stop first, and before sntp_setoperatingmode(), which asserts that the
+    // client is not running. This is a no-op on the first call, when lwIP has
+    // not allocated the UDP control block yet, and on a re-init it is what
+    // makes the restart real: sntp_init() short-circuits when that block
+    // already exists, so without the stop the server name would be re-applied
+    // but no request would ever be scheduled.
     sntp_stop();
+
+    sntp_setoperatingmode(SNTP_OPMODE_POLL);
 
     sntp_init();
 
