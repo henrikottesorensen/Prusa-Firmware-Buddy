@@ -89,6 +89,30 @@ TEST_CASE("sntp: config change is picked up on the next netif down/up cycle") {
     ntp_server_config = nullptr;
 }
 
+TEST_CASE("sntp: reset picks up a config change without a down/up cycle") {
+    // reconfigure() brings the interfaces down and up within a single pass of
+    // the network loop, so sntp_client_step() never observes the down state and
+    // a settings reload would otherwise not be applied until the next reboot.
+    ntp_server_config = nullptr;
+    bring_up();
+    CHECK(strcmp(server_name(), SNTP_SERVER_ADDRESS) == 0);
+
+    ntp_server_config = "10.0.0.5";
+    sntp_client_reset();
+    sntp_client_step(); // interface never went down
+    CHECK(strcmp(server_name(), "10.0.0.5") == 0);
+
+    // And the reverse: clearing it reverts to the default, which is what the
+    // ini documents. Without the reset the registered pointer would still be
+    // aiming at the config store buffer that has just been emptied.
+    ntp_server_config = nullptr;
+    sntp_client_reset();
+    sntp_client_step();
+    CHECK(strcmp(server_name(), SNTP_SERVER_ADDRESS) == 0);
+
+    bring_down();
+}
+
 TEST_CASE("sntp: clearing the override reverts to the default on reconnect") {
     ntp_server_config = "10.0.0.5";
     bring_up();

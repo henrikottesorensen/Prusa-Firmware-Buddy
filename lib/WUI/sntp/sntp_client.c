@@ -6,9 +6,16 @@
 
 #include <option/has_esp.h>
 
-static uint32_t sntp_running = 0; // describes if sntp is currently running or not
+// volatile: written by sntp_client_reset(), read by sntp_client_step().
+static volatile uint32_t sntp_running = 0; // describes if sntp is currently running or not
 void sntp_client_init(void) {
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
+
+    // sntp_init() short-circuits on an already allocated pcb, so on a re-init
+    // it would re-apply only the server name and never schedule a request.
+    // Stopping first makes a re-init a real restart, which is what a settings
+    // change needs. It is a no-op the first time, when there is no pcb yet.
+    sntp_stop();
 
     sntp_init();
 
@@ -18,6 +25,12 @@ void sntp_client_init(void) {
     if (ntp_server != NULL) {
         sntp_setservername(0, ntp_server);
     }
+}
+
+void sntp_client_reset(void) {
+    // Only clears the latch; the lwIP calls stay in sntp_client_step(), which
+    // already holds the tcpip core lock for them.
+    sntp_running = 0;
 }
 
 void sntp_client_step(void) {
