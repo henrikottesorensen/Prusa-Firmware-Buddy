@@ -7,6 +7,7 @@ function(add_sntp_client_test target stub_dir)
     ${target}
     # Not really tests, just stuffings to satisfy the linker.
     ${CMAKE_CURRENT_SOURCE_DIR}/missing_functions.c
+    ${CMAKE_SOURCE_DIR}/tests/stubs/strlcpy.c
     # The tests.
     ${CMAKE_CURRENT_SOURCE_DIR}/sntp_client_tests.cpp
     # Tested files.

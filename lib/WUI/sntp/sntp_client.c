@@ -4,7 +4,6 @@
 #include "wui_api.h"
 #include "tcpip.h"
 
-#include <stdio.h>
 #include <string.h>
 
 #include <option/has_esp.h>
@@ -64,9 +63,12 @@ void sntp_client_step(void) {
         return;
     }
 
-    snprintf(sntp_applied_server, sizeof(sntp_applied_server), "%s", configured);
-
     LOCK_TCPIP_CORE();
+    // The copy itself must happen under the lock too: lwIP still holds a
+    // pointer to this same buffer from the previous start, and the tcpip
+    // thread may be reading it in an in-flight request. The lock excludes
+    // that reader while the buffer changes; the restart below re-registers it.
+    strlcpy(sntp_applied_server, configured, sizeof(sntp_applied_server));
     sntp_client_start();
     UNLOCK_TCPIP_CORE();
     sntp_running = true;
