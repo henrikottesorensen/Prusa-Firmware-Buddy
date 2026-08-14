@@ -178,6 +178,11 @@ add_executable(
   ${CMAKE_SOURCE_DIR}/src/connect/registrator.cpp
   ${CMAKE_SOURCE_DIR}/src/connect/status.cpp
   ${CMAKE_SOURCE_DIR}/src/connect/json_out.cpp
+  # Only the non-websocket exchange uses this (connect.cpp:695, the #else arm), which is why the
+  # rig linked without it for as long as WEBSOCKET was on. The firmware lists it unconditionally
+  # (src/connect/CMakeLists.txt) and so do we - unused in websocket mode, and --gc-sections drops
+  # it there.
+  ${CMAKE_SOURCE_DIR}/src/connect/command_id.cpp
   ${CMAKE_SOURCE_DIR}/src/common/http/connect_error.cpp
   ${CMAKE_SOURCE_DIR}/src/common/http/websocket.cpp
   ${CMAKE_SOURCE_DIR}/src/common/http/buffered_conn.cpp
