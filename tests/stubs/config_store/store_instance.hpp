@@ -5,6 +5,8 @@
     #include <e2ee/identity_check_levels.hpp>
 #endif
 #include <common/hw_check.hpp>
+#include <option/xl_enclosure_support.h>
+#include <option/has_chamber_filtration_api.h>
 #include <cstdint>
 #include <array>
 
@@ -79,6 +81,29 @@ struct ConfigStore {
 
     ManyFalse nozzle_is_hardened;
     ManyFalse nozzle_is_high_flow;
+
+#if XL_ENCLOSURE_SUPPORT() && HAS_CHAMBER_FILTRATION_API()
+    // Written by SET_VALUE handling in the Connect planner; nothing here reads them back.
+    struct BoolSink {
+        void set(bool) {
+        }
+        bool get() const {
+            return false;
+        }
+    };
+
+    struct UintSink {
+        void set(uint32_t) {
+        }
+        uint32_t get() const {
+            return 0;
+        }
+    };
+
+    BoolSink chamber_print_filtration_enable;
+    BoolSink chamber_post_print_filtration_enable;
+    UintSink chamber_post_print_filtration_duration_min;
+#endif
 };
 
 inline ConfigStore &config_store() {

@@ -91,6 +91,12 @@ set(CONNECT_SHARED_SOURCES
   ${CMAKE_SOURCE_DIR}/lib/Middlewares/Third_Party/LwIP/src/netif/ethernet.c
   ${CMAKE_SOURCE_DIR}/src/feature/cork/tracker.cpp
   )
+if(XL_ENCLOSURE_SUPPORT)
+  # Configured as a printer with an enclosure, render.cpp and planner.cpp reach hardware no host
+  # build has. Shared rather than per-target: every target here compiles those two files, so an XL
+  # configure fails to link all of them without it.
+  list(APPEND CONNECT_SHARED_SOURCES xl_hardware_mock.cpp)
+endif()
 
 add_executable(
   connect_tests
@@ -124,6 +130,8 @@ target_include_directories(
           ${CMAKE_SOURCE_DIR}/lib/WUI
           ${CMAKE_SOURCE_DIR}/lib/heatshrink
           ${CMAKE_SOURCE_DIR}/src/gui
+          # planner.cpp includes xl_enclosure.hpp under XL_ENCLOSURE_SUPPORT().
+          ${CMAKE_SOURCE_DIR}/src/hw/xl
           ${CMAKE_SOURCE_DIR}/include/usb_host
           ${CMAKE_SOURCE_DIR}/lib/Middlewares/Third_Party/LwIP/src/include
           ${CMAKE_SOURCE_DIR}/lib/Middlewares/Third_Party/LwIP/system
