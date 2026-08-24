@@ -89,6 +89,8 @@ std::string read_file(const char *path) {
         "  --identity  JSON holding an enrolled printer's credentials: Fingerprint, Token,\n"
         "              SerialNumber, Firmware\n"
         "  --printing  start out mid-job, so telemetry carries the job block and Pause round-trips\n"
+        "  --paused    start out mid-job and paused, which is the only state M701's R does anything\n"
+        "              in - otherwise it takes a PAUSE_PRINT from the server to get there\n"
         "  --swap-in <seconds>  schedule one filament change (M600) that far into the job, so the\n"
         "              client emits a counting-down filament_change_in\n"
         "  --tools <spec>  which tools exist and what they hold, as `1:PLA,2:PETG,3:-,5:ASA`.\n"
@@ -169,6 +171,7 @@ int main(int argc, char *argv[]) {
     const char *host = "127.0.0.1";
     uint16_t port = 5052;
     bool printing = false;
+    bool paused = false;
     bool tls = false;
     bool custom_cert = false;
     std::optional<uint32_t> swap_in = std::nullopt;
@@ -187,6 +190,9 @@ int main(int argc, char *argv[]) {
             port = static_cast<uint16_t>(atoi(argv[++i]));
         } else if (arg == "--printing") {
             printing = true;
+        } else if (arg == "--paused") {
+            printing = true;
+            paused = true;
         } else if (arg == "--tls") {
             tls = true;
         } else if (arg == "--custom-cert") {
@@ -226,7 +232,8 @@ int main(int argc, char *argv[]) {
     // The firmware truncates the fingerprint to 16 characters for headers on its own
     // (FINGERPRINT_HDR_SIZE, connect.cpp) - the full 50 goes in, exactly as on hardware.
     printf("rig: connecting to %s:%u as %.16s... (token %zu chars, %s)\n",
-        host, port, fingerprint.c_str(), token.size(), printing ? "printing" : "idle");
+        host, port, fingerprint.c_str(), token.size(),
+        paused ? "paused" : printing ? "printing" : "idle");
     fflush(stdout);
 
     static connect_client::RigPrinter printer(host, port, token.c_str(), fingerprint.c_str(),
@@ -265,7 +272,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (printing) {
-        printer.start_fake_print(1, 3600, swap_in);
+        printer.start_fake_print(1, 3600, swap_in, paused);
     }
 
     read_gcode_from_stdin(printer);

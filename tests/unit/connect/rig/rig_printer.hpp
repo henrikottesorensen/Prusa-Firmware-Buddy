@@ -53,6 +53,8 @@
 //     (`#if HAS_INDX()`, :127-131 and :185-188) and an XL does not. So on an XL a second unload
 //     targets the same tool again, while on an INDX it finds nothing picked and does nothing at all -
 //     which is the resting state there, not an edge case.
+//   - `M701 R` restarts a paused print (:133), on every build - the dock above is the only half of
+//     that flag INDX gates. Reach it with --paused.
 //
 // Not reproduced, and deliberately: this is not GCodeParser2. It reads exactly the words the rig
 // needs and ignores every other parameter, so it cannot stand in for firmware's parser. Anything
@@ -218,12 +220,15 @@ public:
     /// <paramref name="filament_change_in_s"/> optionally schedules one pause (an M600 colour swap) that
     /// many seconds in - which is what makes the firmware emit `filament_change_in` at all.
     void start_fake_print(uint16_t job_id, uint32_t duration_s = 3600,
-                          std::optional<uint32_t> filament_change_in_s = std::nullopt) {
+                          std::optional<uint32_t> filament_change_in_s = std::nullopt,
+                          bool paused = false) {
         const std::lock_guard guard(mutex);
 
         state.job_id = job_id;
         state.has_job = true;
-        state.state = printer_state::DeviceState::Printing;
+        // Paused is a job that exists and is not running, which is the only state `M701 R` does
+        // anything in. Reaching it otherwise needs a PAUSE_PRINT from the server.
+        state.state = paused ? printer_state::DeviceState::Paused : printer_state::DeviceState::Printing;
         state.target_nozzle = filament_change_nozzle_temp;
         // The tool the flat temperature fields describe. On a multi-tool printer that is one head's
         // reading presented as the machine's, which is what preferred_slot() means (printer.cpp:214).
@@ -702,22 +707,32 @@ private:
             printf("rig: tool %u now holds %s\n", front.tool->to_raw() + 1,
                 front.material.empty() ? "nothing" : front.material.data());
 
+            // M701_2.cpp:112 - `R` only means anything while a print is actually paused, and then it
+            // means two separate things. This is the one flag whose two halves are gated
+            // differently, so they are written apart here rather than together.
+            const bool resuming = front.operation == Operation::load && front.resume_print
+                && state.state.device_state == printer_state::DeviceState::Paused;
+
 #if HAS_INDX()
             // INDX docks the head when it is done, and only INDX does - the XL leaves it picked
             // (M701_2.cpp:127-131 for the load, :185-188 for the unload). This is what makes a
             // second filament gcode carrying no T a no-op on these machines: the printer has put
             // itself back to "nothing picked" without being asked.
             //
-            // A load that is resuming a paused print keeps the tool, because that print is about to
-            // use it (M701_2.cpp:126, `if (!do_resume_print)`).
-            const bool resuming = front.operation == Operation::load && front.resume_print
-                && state.state.device_state == printer_state::DeviceState::Paused;
-
+            // Except when it is feeding a print about to restart, which would make docking absurd.
             if (!resuming) {
                 state.active_slot = NoTool {};
                 printf("rig: docked - nothing picked\n");
             }
 #endif
+
+            // The other half, and it is NOT inside the guard above: print_resume() is unconditional
+            // (M701_2.cpp:133), so a load with `R` restarts a paused print on every printer, not just
+            // on the ones that dock.
+            if (resuming) {
+                state.state = printer_state::DeviceState::Printing;
+                printf("rig: resumed the print\n");
+            }
 
             pending.pop_front();
         }
@@ -730,7 +745,8 @@ private:
         std::optional<unsigned> requested_tool;
         /// What the tool holds once it finishes. Empty is an unload.
         FilamentTypeParameters::Name material;
-        /// M701's `R`. Only INDX reads it, to keep the tool picked for the print it is resuming.
+        /// M701's `R` - resume the print if one is paused. Two effects, gated differently: it
+        /// restarts the print on any build, and on INDX it also keeps the tool from docking.
         bool resume_print = false;
 
         bool started = false;
