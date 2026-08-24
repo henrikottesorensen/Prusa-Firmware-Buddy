@@ -56,9 +56,16 @@
 //   - `M701 R` restarts a paused print (:133), on every build - the dock above is the only half of
 //     that flag INDX gates. Reach it with --paused.
 //
+//   - `M9933 C<cookie>` is Connect's own cork marker rather than a printer feature, and it MUST be
+//     answered or the client wedges: the planner holds its background command until the cookie comes
+//     back done, and every command arriving meanwhile is refused with no reason at all
+//     (planner.cpp:1093-1098, the one rejection site that sets none). Marked when this rig's queue
+//     drains, which is where Marlin would mark it - so an unload occupies the client for its whole
+//     duration, as it does on hardware.
+//
 // Not reproduced, and deliberately: this is not GCodeParser2. It reads exactly the words the rig
 // needs and ignores every other parameter, so it cannot stand in for firmware's parser. Anything
-// beyond T/M701/M702 is accepted and discarded, as an unknown gcode would be.
+// beyond T/M701/M702/M9933 is accepted and discarded, as an unknown gcode would be.
 
 #include <connect/printer.hpp>
 #include <general_response.hpp>
@@ -66,6 +73,7 @@
 #include <timing.h>
 #include <connect/printer_type.hpp>
 #include <option/has_indx.h>
+#include <feature/cork/tracker.hpp>
 
 #include <algorithm>
 #include <charconv>
@@ -382,7 +390,18 @@ public:
 
         const std::string_view line = trim(gcode);
 
-        if (line.starts_with("T")) {
+        if (line.starts_with("M9933")) {
+            // Connect's own marker, not something a server composed: after submitting a gcode it
+            // takes a cork and submits M9933 C<cookie>, then waits for that cookie to come back done
+            // before it will accept another command (background.cpp:22-35, :90-101). On hardware
+            // Marlin marks it when the gcode EXECUTES, which is why an M702 running for minutes makes
+            // the next command meet a refusal.
+            //
+            // Held rather than marked here, for exactly that reason: it completes when this rig's own
+            // queue drains, so the window matches the operation instead of closing instantly.
+            pending_cork = parameter(line.substr(5), 'C').transform(
+                [](unsigned c) { return static_cast<buddy::cork::Tracker::Cookie>(c); });
+        } else if (line.starts_with("T")) {
             tool_change(line.substr(1));
         } else if (line.starts_with("M701")) {
             filament_gcode(line.substr(4), Operation::load);
@@ -736,6 +755,14 @@ private:
 
             pending.pop_front();
         }
+
+        // The queue is empty, so anything corked behind it has now run. Nothing to do while a cork is
+        // outstanding and work is still pending: that is the printer being busy, and the planner
+        // refusing further commands for the duration is the behaviour being reproduced.
+        if (pending_cork.has_value() && pending.empty()) {
+            buddy::cork::tracker.mark_done(*pending_cork);
+            pending_cork.reset();
+        }
     }
 
     struct PendingGcode {
@@ -762,6 +789,8 @@ private:
     mutable std::mutex mutex;
     mutable Params state { std::nullopt };
     mutable std::deque<PendingGcode> pending;
+    /// A cork waiting for this rig's queue to drain; see submit_gcode's M9933 branch.
+    mutable std::optional<buddy::cork::Tracker::Cookie> pending_cork = std::nullopt;
 
     uint32_t filament_change_duration_s = 5;
 
