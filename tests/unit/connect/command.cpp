@@ -3,6 +3,7 @@
 #include <module/prusa/tool_mapper.hpp>
 #include <cstring>
 #include <format>
+#include <string>
 #include <catch2/catch_test_macros.hpp>
 
 using namespace connect_client;
@@ -90,20 +91,34 @@ TEST_CASE("Start print - tool mapping") {
             num = ToolMapper::NO_TOOL_MAPPED;
         }
     }
-    // NOTE: the index here shopuld always -1 from the original (0 based vs 1 based)
-    expected[0] = { 1, 2, 255, 255, 255, 255 };
-    expected[2] = { 3, 4, 0, 255, 255, 255 };
+    // NOTE: the index here should always -1 from the original (0 based vs 1 based)
+    // Element-wise rather than a braced row, whose length would otherwise have to match EXTRUDERS.
+    expected[0][0] = 1;
+    expected[0][1] = 2;
+    expected[2][0] = 3;
+    expected[2][1] = 4;
+    expected[2][2] = 0;
     REQUIRE(cmd.tool_mapping.has_value());
     auto tm = cmd.tool_mapping.value();
     REQUIRE(tm == expected);
 }
 
+// Both bounds below are EXTRUDERS (command.cpp:300-301 indexes ToolMapping, which is square and
+// EXTRUDERS wide), so both cases are built from it rather than written as literals - otherwise the
+// numbers stop being out of range the moment the configured tool count grows past them, and the test
+// keeps passing while asserting nothing.
 TEST_CASE("Start print - tool mapping too many tools") {
-    command_test<BrokenCommand>("{\"command\": \"START_PRINT\", \"kwargs\": {\"path\": \"/usb/x.gcode\", \"tool_mapping\": {\"1\": [2, 3, 4, 5, 1, 3, 2]}}}");
+    std::string tools;
+
+    for (size_t i = 0; i <= EXTRUDERS; i++) {
+        tools += (i == 0 ? "1" : ", 1");
+    }
+
+    command_test<BrokenCommand>(std::format("{{\"command\": \"START_PRINT\", \"kwargs\": {{\"path\": \"/usb/x.gcode\", \"tool_mapping\": {{\"1\": [{}]}}}}}}", tools).c_str());
 }
 
-TEST_CASE("Start print - tool mapping 7th tool") {
-    command_test<BrokenCommand>("{\"command\": \"START_PRINT\", \"kwargs\": {\"path\": \"/usb/x.gcode\", \"tool_mapping\": {\"7\": [2, 3, 4, 5]}}}");
+TEST_CASE("Start print - tool mapping one past the last tool") {
+    command_test<BrokenCommand>(std::format("{{\"command\": \"START_PRINT\", \"kwargs\": {{\"path\": \"/usb/x.gcode\", \"tool_mapping\": {{\"{}\": [2, 3, 4, 5]}}}}}}", EXTRUDERS + 1).c_str());
 }
 
 TEST_CASE("Start print - SFN") {
