@@ -43,9 +43,12 @@ endfunction()
 add_executable(system_tests ${CMAKE_CURRENT_SOURCE_DIR}/system_test.cpp)
 add_catch_test(system_tests)
 
-# Define printer-type related defines (set up as MINI)
+# Define printer-type related defines. These follow the configured PRINTER/BOARD, which the root
+# CMakeLists has already resolved into these variables; at the default configuration (MINI on BUDDY)
+# they come out as the literals this used to hardcode.
 add_compile_definitions(
-  PRINTER_VERSION=1 PRINTER_SUBVERSION=0 PRINTER_TYPE=2 PRINTER_CODE=12 BOARD=BOARD_BUDDY
+  PRINTER_VERSION=${PRINTER_VERSION} PRINTER_SUBVERSION=${PRINTER_SUBVERSION}
+  PRINTER_TYPE=${PRINTER_TYPE} PRINTER_CODE=${PRINTER_CODE} BOARD=BOARD_${BOARD}
   )
 
 # now, include all the unit tests; they should add themselves using the add_catch_test function
